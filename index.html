@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>익명 게시판 (Supabase 실시간)</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <style>
+    body { margin:0; padding:16px; font-family:sans-serif; font-size:18px; background:#f4f4f4; }
+    h1 { font-size:26px; text-align:center; margin-bottom:20px; }
+    #adminBtn, #submitBtn {
+      font-size:20px; padding:16px; width:100%; margin-bottom:12px;
+      border-radius:10px; border:none; color:white;
+    }
+    #adminBtn { background:#007bff; }
+    #submitBtn { background:#28a745; }
+    #adminBadge { font-size:18px; display:none; text-align:center; margin-bottom:16px; color:red; }
+    textarea {
+      width:100%; min-height:120px; font-size:18px; padding:14px; margin-bottom:12px;
+      border-radius:10px; border:1px solid #ccc;
+    }
+    .comment {
+      background:#fff; border:1px solid #ccc; border-radius:12px;
+      padding:16px; margin:14px 0; font-size:18px; position:relative;
+    }
+    .menu { position:absolute; right:14px; top:14px; font-size:22px; cursor:pointer; }
+    small { display:block; margin-top:10px; font-size:14px; color:#666; }
+    /* 모달 스타일 */
+    .modal {
+      display:none; position:fixed; z-index:999; left:0; top:0; width:100%; height:100%;
+      background:rgba(0,0,0,0.5); justify-content:center; align-items:center;
+    }
+    .modal-content {
+      background:#fff; padding:20px; border-radius:12px; width:90%; max-width:320px; text-align:center;
+    }
+    .modal-content input {
+      width:100%; padding:12px; margin:12px 0; font-size:18px;
+      border:1px solid #ccc; border-radius:8px;
+    }
+    .modal-content button {
+      width:100%; padding:14px; font-size:18px; margin:10px 0;
+      border:none; border-radius:8px;
+    }
+    #adminLoginConfirm { background:#007bff; color:white; }
+    #adminLoginCancel { background:#ccc; }
+    #editBtn { background:#ffc107; }
+    #deleteBtn { background:#dc3545; color:white; }
+    #closeMenu { background:#ccc; }
+  </style>
+</head>
+<body>
+  <h1>익명 채팅 게시판</h1>
+  <button id="adminBtn">관리자 로그인</button>
+  <span id="adminBadge">관리자 모드</span>
+  <textarea id="msg" placeholder="댓글 입력"></textarea>
+  <button id="submitBtn">등록</button>
+  <div id="list"></div>
+
+  <!-- 관리자 로그인 모달 -->
+  <div id="adminModal" class="modal">
+    <div class="modal-content">
+      <h3>관리자 키 입력</h3>
+      <input type="password" id="adminKeyInput" placeholder="키 입력">
+      <button id="adminLoginConfirm">로그인</button>
+      <button id="adminLoginCancel">취소</button>
+    </div>
+  </div>
+
+  <!-- ⋮ 메뉴 모달 -->
+  <div id="menuModal" class="modal">
+    <div class="modal-content">
+      <h3>댓글 관리</h3>
+      <button id="editBtn">수정</button>
+      <button id="deleteBtn">삭제</button>
+      <button id="closeMenu">닫기</button>
+    </div>
+  </div>
+
+<script>
+const SUPABASE_URL = "https://jaztoerkyizeieaskbtz.supabase.co"; // ✅ 프로젝트 URL
+const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImphenRvZXJreWl6ZWllYXNrYnR6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQxMzM5NDksImV4cCI6MjA3OTcwOTk0OX0.aEnIKh4OxlfOroAIhMsnQNwj65FQ4fYa8-G49UTw2q4"; // ✅ anon key
+const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+let isAdmin = false;
+const ADMIN_KEY = "wjdwogkr2783!!??"; // ✅ 관리자 키
+let currentCommentId = null;
+
+// 모달 요소
+const adminModal = document.getElementById("adminModal");
+const adminKeyInput = document.getElementById("adminKeyInput");
+const adminLoginConfirm = document.getElementById("adminLoginConfirm");
+const adminLoginCancel = document.getElementById("adminLoginCancel");
+
+const menuModal = document.getElementById("menuModal");
+const editBtn = document.getElementById("editBtn");
+const deleteBtn = document.getElementById("deleteBtn");
+const closeMenu = document.getElementById("closeMenu");
+
+// 관리자 버튼
+document.getElementById("adminBtn").addEventListener("click", () => {
+  if (!isAdmin) {
+    adminModal.style.display = "flex";
+    adminKeyInput.value = "";
+  } else {
+    isAdmin = false;
+    document.getElementById("adminBadge").style.display = "none";
+    document.getElementById("adminBtn").textContent = "관리자 로그인";
+    loadComments();
+  }
+});
+
+// 관리자 로그인 확인
+adminLoginConfirm.addEventListener("click", () => {
+  const key = adminKeyInput.value.trim();
+  if (key === ADMIN_KEY) {
+    isAdmin = true;
+    document.getElementById("adminBadge").style.display = "block";
+    document.getElementById("adminBtn").textContent = "관리자 로그아웃";
+    adminModal.style.display = "none";
+    loadComments();
+  } else {
+    alert("잘못된 키입니다.");
+  }
+});
+adminLoginCancel.addEventListener("click", () => adminModal.style.display = "none");
+
+// 댓글 등록
+document.getElementById("submitBtn").addEventListener("click", async () => {
+  const text = document.getElementById("msg").value.trim();
+  if (!text) return alert("내용을 입력하세요");
+  const { error } = await supabase.from("comments").insert({ text });
+  if (error) {
+    alert("댓글 저장 실패: " + error.message);
+    console.error(error);
+  } else {
+    document.getElementById("msg").value = "";
+  }
+});
+
+// 댓글 불러오기
+async function loadComments() {
+  const { data, error } = await supabase.from("comments").select("*").order("created_at", { ascending: false });
+  if (error) {
+    console.error("불러오기 오류:", error);
+    return;
+  }
+  const list = document.getElementById("list");
+  list.innerHTML = "";
+  data.forEach(c => {
+    const div = document.createElement("div");
+    div.className = "comment";
+    div.innerHTML = `<div>${c.text}</div><small>${c.created_at}</small>`;
+    
+    if (isAdmin) {
+      const menu = document.createElement("div");
+      menu.className = "menu";
+      menu.innerHTML = "⋮";
+      menu.onclick = () => {
+        currentCommentId = c.id;
+        menuModal.style.display = "flex";
+      };
+      div.appendChild(menu);
+    }
+    list.appendChild(div);
+  });
+}
+
+// ⋮ 메뉴 모달 동작
+editBtn.addEventListener("click", async () => {
+  const newText = prompt("새 내용 입력");
+  if (newText) {
+    await supabase.from("comments").update({ text: newText }).eq("id", currentCommentId);
+  }
+  menuModal.style.display = "none";
+});
+deleteBtn.addEventListener("click", async () => {
+  await supabase.from("comments").delete().eq("id", currentCommentId);
+  menuModal.style.display = "none";
+});
+closeMenu.addEventListener("click", () => menuModal.style.display = "none");
+
+// 실시간 구독
+supabase.channel("comments-channel")
+  .on("postgres_changes", { event: "*", schema: "public", table: "comments" }, payload => {
+    loadComments();
+  })
+  .subscribe();
+
+// 자동 새로고침 (5초마다)
+setInterval(() => {
+  loadComments();
+}, 5000);
+
+// 초기 로딩
+loadComments();
+</script>
+</body>
